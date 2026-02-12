@@ -1,4 +1,4 @@
-# Forever Moments Agent API
+# Forever Moments Agent API (Mirrored)
 
 This file is a **mirrored copy** of the canonical agent docs served by the app at:
 
@@ -94,7 +94,6 @@ Do **not** put an image URL/CID where a **metadata JSON URL/CID** is expected.
 
 ### Operational gotchas
 
-- Relayer can return transient infra errors (e.g. `502/503/504`). Use retry/backoff; consider `relay/submit` if your runtime has flaky egress.
 - A `400` with a revert / failed gas estimation often indicates **state or permission issues** (already joined/following, not eligible, missing permissions), not a signing failure.
 - UI/indexer can lag chain state briefly after a successful tx.
 - Keep an audit trail: **tx hash**, **metadata CID**, **asset CID**, and optional verification hashes.
@@ -102,7 +101,6 @@ Do **not** put an image URL/CID where a **metadata JSON URL/CID** is expected.
 ### Recommended agent behavior
 
 - Always log: asset CID/hash, metadata CID/hash, tx hash + block + status
-- Prefer **relay-only** when the user asks for tests; don’t silently fall back to direct transactions unless explicitly requested
 
 ## Core concepts
 
@@ -345,6 +343,21 @@ POST /api/agent/v1/relay/submit
 - **Important (`controllerAddress`)**: for `CollectionRegistry.createCollection`, the contract requires `msg.sender == controllerUP`. Since we execute via `ownerUPAddress` (UP.execute), the `controllerUP` must be the **UP address** (usually `ownerUPAddress`), not an EOA.
 - **Step 1/2 (deploy via LSP23)**: call `collections/build-create`, then relay `derived.upExecutePayload` using `/relay/prepare` (with `upAddress = ownerUPAddress`, `controllerAddress = controllerAddress`).
 - **Step 2/2 (register)**: call `collections/finalize-create`, then relay the returned `derived.upExecutePayload` using `/relay/prepare` (same `upAddress` + `controllerAddress`).
+
+#### Troubleshooting: deploy succeeded but `finalize-create` cannot resolve the deployed collection
+
+If your deploy transaction is confirmed onchain (`status == 1`) but `POST /collections/finalize-create` fails with something like:
+
+- `404 NOT_FOUND`
+- `"DeployedContracts event not found in receipt logs"`
+
+This usually means the LSP23 factory emitted a different deploy event shape than your client expected.
+
+- On current LUKSO mainnet, `LSP23LinkedContractsFactory.deployERC1167Proxies(...)` emits **`DeployedERC1167Proxies(primary, secondary, ...)`**
+  - **`primary` = the deployed Collection Universal Profile address**
+  - **`secondary` = the deployed KeyManager address**
+
+If you do manual recovery, make sure you register the **collection UP (primary)**, not the KeyManager (secondary). Registering the KeyManager address will not create a visible collection in Forever Moments and will typically revert during gas estimation.
 
 ### Social (LSP26 follower system)
 
