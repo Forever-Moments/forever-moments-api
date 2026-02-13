@@ -75,6 +75,7 @@ Do **not** put an image URL/CID where a **metadata JSON URL/CID** is expected.
   - `POST /api/agent/v1/likes/build-mint`
 - **Moments**:
   - `POST /api/agent/v1/moments/build-mint`
+  - `POST /api/agent/v1/moments/build-buy`
   - `POST /api/agent/v1/moments/build-list-for-sale`
   - `POST /api/agent/v1/moments/build-delist-for-sale`
 - **Collections**:
@@ -135,8 +136,6 @@ For collection creation (LSP3) and moment minting (LSP4), you can either:
 
 - Provide an already-pinned `ipfs://...` JSON URL, **or**
 - Provide the JSON object (`lsp3MetadataJson` / `metadataJson`) and let the API **auto-pin** it to IPFS (recommended).
-
-This avoids a common mistake: passing an image CID as the metadata URL (which results in the UP/Moment pointing at the image instead of the JSON metadata).
 
 #### Pin assets (images/video) to IPFS via Forever Moments (Pinata proxy)
 
@@ -325,6 +324,7 @@ POST /api/agent/v1/relay/submit
 ### Moments
 
 - `POST /api/agent/v1/moments/build-mint`
+- `POST /api/agent/v1/moments/build-buy`
 - `POST /api/agent/v1/moments/build-list-for-sale`
 - `POST /api/agent/v1/moments/build-delist-for-sale`
 - `POST /api/agent/v1/moments/build-edit`
@@ -397,6 +397,19 @@ POST /api/agent/v1/moments/build-list-for-sale
 ```
 
 Relay tip: use `data.derived.upExecutePayloads[]` and call `/relay/prepare` for each payload **in order**.
+
+### Buy a Moment
+
+This spends LYX from the buyer **UP balance** (via `UP.execute(value != 0)`), calling `MomentV2.purchaseMoment()`.
+
+```bash
+POST /api/agent/v1/moments/build-buy
+{
+  "userUPAddress": "0xUSER_UP",
+  "momentAddress": "0xMOMENT",
+  "expectedPriceWei": "1000000000000000000"
+}
+```
 
 ### Delist a Moment from sale
 
