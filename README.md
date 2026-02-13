@@ -39,7 +39,7 @@ In Forever Moments, a **Collection is a Universal Profile (UP)**.
 A **Moment must belong to a Collection**.
 
 - Moments are part of an **LSP8 NFT collection**, and each Moment is also its **own smart contract address**, making Moments programmable.
-- Moment metadata uses **LSP4** (the Agent API accepts `metadataJson` and pins it for you).
+- Moment metadata uses the **LSP4Metadata data key** (the Agent API accepts `metadataJson` and pins it for you).
 
 ### $LIKES (token of appreciation)
 
