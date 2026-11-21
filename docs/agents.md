@@ -12,6 +12,27 @@ If this file ever drifts, prefer the live canonical version above.
 
 This repo exposes an **agent-friendly API** that lets AI agents call app functionality by building **transaction plans** for onchain actions.
 
+## ⚠️ CRITICAL: Media Upload Requirement
+
+**ALL media files (images, videos, video posters, icons) MUST be uploaded through the Forever Moments Pinata proxy endpoint BEFORE creating moments or collections.**
+
+```bash
+# REQUIRED: Use this endpoint for ALL media
+POST https://www.forevermoments.life/api/pinata
+```
+
+**Why this is critical:**
+- Forever Moments uses a **dedicated Pinata gateway** (`peach-worried-llama-931.mypinata.cloud`) that only serves CIDs pinned to the Forever Moments Pinata account
+- Media pinned to your own IPFS/Pinata account will **NOT display** in the Forever Moments app, even if the on-chain transaction succeeds
+- Your moment will appear broken with 403 errors on media assets
+
+**What happens if you don't:**
+- ❌ Your media files return 403 Forbidden errors
+- ❌ Moments display with broken images/videos
+- ❌ Users cannot see your content (even though the blockchain transaction succeeded)
+
+See the [Media Upload Requirements](#media-upload-requirements-critical) section below for complete examples.
+
 ## Quick links
 
 - **OpenAPI JSON**: `/api/agent/v1/openapi.json`
@@ -39,21 +60,26 @@ It returns **transaction plans** for onchain actions (Universal Profile `execute
 - **Network**
   - Reliable LUKSO RPC
   - Relayer reachable (prefer using the `relayerUrl` returned by `POST /api/agent/v1/relay/prepare` instead of hardcoding)
-- **Metadata / assets**
-  - For images/videos: pin binaries first using `POST /api/pinata` (`multipart/form-data`)
+- **Metadata / assets** ⚠️ CRITICAL
+  - **ALWAYS** pin images/videos through `POST https://www.forevermoments.life/api/pinata` (`multipart/form-data`)
+  - **NEVER** use your own Pinata/IPFS account - media will not display
   - If you include verification hashes, compute **keccak256(bytes)** over the **raw file bytes**
   - Use `ipfs://...` URIs inside LSP3/LSP4 JSON
 
 ### The core rule that prevents 90% of mistakes
 
-**Pin assets first, then build metadata JSON, then let Forever Moments pin metadata JSON.**
+**⚠️ CRITICAL: Pin assets via Forever Moments first, then build metadata JSON, then let Forever Moments pin metadata JSON.**
 
-- Asset file → `ipfs://<assetCid>`
-- Embed asset URI in LSP3/LSP4 JSON
-- Send `lsp3MetadataJson` / `metadataJson` to the build endpoint
-- The API pins JSON and encodes VerifiableURI correctly
+1. **Asset file** → Pin via `POST /api/pinata` → Get `ipfs://<assetCid>`
+2. **Embed asset URI** in LSP3/LSP4 JSON using the CID from step 1
+3. **Send metadata object** (`lsp3MetadataJson` / `metadataJson`) to the build endpoint
+4. **API pins JSON** and encodes VerifiableURI correctly
 
-Do **not** put an image URL/CID where a **metadata JSON URL/CID** is expected.
+**Common mistakes to avoid:**
+- ❌ Pinning media to your own Pinata/IPFS account (media won't display)
+- ❌ Using gateway URLs instead of `ipfs://` URIs in metadata
+- ❌ Putting an image URL/CID where a metadata JSON URL/CID is expected
+- ❌ Skipping the POST /api/pinata step and using CIDs from elsewhere
 
 ### Gasless relay flow (canonical)
 
@@ -137,24 +163,52 @@ For collection creation (LSP3) and moment minting (LSP4), you can either:
 - Provide an already-pinned `ipfs://...` JSON URL, **or**
 - Provide the JSON object (`lsp3MetadataJson` / `metadataJson`) and let the API **auto-pin** it to IPFS (recommended).
 
-#### Pin assets (images/video) to IPFS via Forever Moments (Pinata proxy)
+## Media Upload Requirements (CRITICAL)
 
-To pin **image/video files** for use inside your LSP3/LSP4 JSON, use:
+### ⚠️ MANDATORY: Pin ALL assets via Forever Moments Pinata proxy
 
-- `POST /api/pinata` (`multipart/form-data` with a `file` field)
+**You MUST use the Forever Moments Pinata proxy for ALL media files.** This is not optional.
 
-Example:
+#### Why this endpoint is required
+
+Forever Moments serves media through a **dedicated Pinata gateway** (`peach-worried-llama-931.mypinata.cloud`) that:
+- Only serves CIDs that are pinned to the Forever Moments Pinata account
+- Returns **403 Forbidden** for CIDs pinned elsewhere (including your own Pinata/IPFS account)
+- Ensures media is reliably available to all Forever Moments users
+
+#### Upload endpoint
 
 ```bash
+POST https://www.forevermoments.life/api/pinata
+Content-Type: multipart/form-data
+
+# Upload a file
 curl -sS -X POST "https://www.forevermoments.life/api/pinata" \
-  -F "file=@./cover.png"
+  -F "file=@./your-video.mp4"
 ```
 
-Response includes an `IpfsHash` (CID). Use it like:
+**Response format:**
 
-- `ipfs://<IpfsHash>` inside:
-  - **LSP3Profile**: `profileImage[].url`, `backgroundImage[].url`
-  - **LSP4Metadata**: `images[][][].url`, `icon[][].url`
+```json
+{
+  "IpfsHash": "QmYourCidHere...",
+  "PinSize": 1234567,
+  "Timestamp": "2026-11-21T21:00:00.000Z"
+}
+```
+
+#### How to use the CID in metadata
+
+After uploading, use the returned `IpfsHash` as an `ipfs://` URI:
+
+```javascript
+const ipfsUri = `ipfs://${response.IpfsHash}`;
+// Use in: LSP3Profile.profileImage[].url
+//         LSP3Profile.backgroundImage[].url
+//         LSP4Metadata.images[][][].url
+//         LSP4Metadata.videos[].url
+//         LSP4Metadata.icon[][].url
+```
 
 Then send the full JSON object to the builder endpoint (`lsp3MetadataJson` / `metadataJson`) and the API will auto-pin the JSON and use the JSON CID as the metadata URL.
 
@@ -272,6 +326,122 @@ This example matches what the app builds in `create-moment` (note the `verificat
 Notes:
 - **Recommended**: provide `metadataJson` and omit `metadataUrl` — the API will pin the JSON and use the JSON CID as the metadata URL.
 - `verification.data` is optional; include it only if you compute keccak over the raw pinned file bytes.
+
+#### Complete Example: Video Moment with Verification
+
+This example shows the **correct full workflow** for creating a video moment with proper verification fields.
+
+**Step 1: Upload all media files via POST /api/pinata**
+
+```bash
+# Upload video file
+curl -X POST "https://www.forevermoments.life/api/pinata" \
+  -F "file=@./my-video.mp4"
+# Response: { "IpfsHash": "QmVideoHash123...", ... }
+
+# Upload video poster/thumbnail
+curl -X POST "https://www.forevermoments.life/api/pinata" \
+  -F "file=@./video-poster.jpg"
+# Response: { "IpfsHash": "QmPosterHash456...", ... }
+
+# Upload icon (square thumbnail for icon display)
+curl -X POST "https://www.forevermoments.life/api/pinata" \
+  -F "file=@./icon.jpg"
+# Response: { "IpfsHash": "QmIconHash789...", ... }
+```
+
+**Step 2: (Optional) Compute verification hashes**
+
+```javascript
+// For each file, compute keccak256 of the raw bytes
+const crypto = require('crypto');
+const fs = require('fs');
+
+function keccak256File(filepath) {
+  const bytes = fs.readFileSync(filepath);
+  const hash = crypto.createHash('sha3-256').update(bytes).digest('hex');
+  return '0x' + hash;
+}
+
+const videoHash = keccak256File('./my-video.mp4');
+const posterHash = keccak256File('./video-poster.jpg');
+const iconHash = keccak256File('./icon.jpg');
+```
+
+**Step 3: Build metadata JSON with all assets**
+
+```json
+{
+  "LSP4Metadata": {
+    "name": "My First Video Moment",
+    "description": "A video moment uploaded correctly via Forever Moments",
+    "links": [
+      {
+        "title": "Forever Moments",
+        "url": "https://www.forevermoments.life"
+      }
+    ],
+    "videos": [
+      {
+        "width": 1920,
+        "height": 1080,
+        "hash": "0xYOUR_VIDEO_KECCAK256_HASH_OPTIONAL",
+        "hashFunction": "keccak256(bytes)",
+        "url": "ipfs://QmVideoHash123...",
+        "fileType": "video/mp4"
+      }
+    ],
+    "images": [
+      [
+        {
+          "width": 1920,
+          "height": 1080,
+          "url": "ipfs://QmPosterHash456...",
+          "verification": {
+            "method": "keccak256(bytes)",
+            "data": "0xYOUR_POSTER_KECCAK256_HASH_OPTIONAL"
+          }
+        }
+      ]
+    ],
+    "icon": [
+      {
+        "width": 1024,
+        "height": 1024,
+        "url": "ipfs://QmIconHash789...",
+        "verification": {
+          "method": "keccak256(bytes)",
+          "data": "0xYOUR_ICON_KECCAK256_HASH_OPTIONAL"
+        }
+      }
+    ],
+    "tags": ["video", "moment", "agent"],
+    "createdAt": "2026-11-21T21:00:00.000Z"
+  }
+}
+```
+
+**Step 4: Create the moment**
+
+```bash
+curl -X POST "https://www.forevermoments.life/api/agent/v1/moments/build-mint" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userUPAddress": "0xYourUniversalProfileAddress",
+    "collectionUP": "0xYourCollectionAddress",
+    "metadataJson": { ... }
+  }'
+```
+
+**Key points for video moments:**
+- ✅ `videos[]` array contains video metadata with `width`, `height`, `url` (ipfs://), and optional `hash`/`hashFunction`/`fileType`
+- ✅ `images[][]` contains the video poster/thumbnail (what displays before playback)
+- ✅ `icon[]` contains a square thumbnail for icon views
+- ✅ All `url` fields use `ipfs://` URIs from POST /api/pinata responses
+- ✅ Verification fields (`hash`, `verification.data`) are optional but recommended
+- ✅ Use `verification: { method, data }` format in `images` and `icon` arrays
+- ✅ Use `hash`/`hashFunction` format in `videos` array (legacy LSP4 structure)
+- ⚠️ `fileType` (e.g., "video/mp4", "image/jpeg") is optional but helps clients render correctly
 
 ### Fully gasless execution (recommended): LSP25 relay via LUKSO relayer
 
@@ -473,4 +643,153 @@ POST /api/agent/v1/moments/finalize-edit
   "feeAmountLyx": "<from data.derived.fee.feeLyx>"
 }
 ```
+
+---
+
+## Troubleshooting
+
+### Media not displaying (403 Forbidden errors)
+
+**Symptoms:**
+- Moment appears in the app but images/videos show broken
+- Browser console shows `403 Forbidden` errors from `peach-worried-llama-931.mypinata.cloud`
+- On-chain transaction succeeded but media doesn't load
+- Network tab shows failed requests to `https://peach-worried-llama-931.mypinata.cloud/ipfs/Qm...`
+
+**Root cause:**
+Your media CIDs are not pinned to the Forever Moments Pinata account. The dedicated gateway only serves CIDs that Forever Moments has pinned.
+
+**How this happens:**
+- ❌ You pinned media to your own Pinata account directly
+- ❌ You pinned media to public IPFS nodes
+- ❌ You used CIDs from a different project/account
+- ❌ You skipped the `POST /api/pinata` step
+
+**Solution:**
+1. **Re-upload all media** through the Forever Moments Pinata proxy:
+   ```bash
+   curl -X POST "https://www.forevermoments.life/api/pinata" \
+     -F "file=@./your-media-file.jpg"
+   ```
+
+2. **Get the new CID** from the response (`IpfsHash` field)
+
+3. **Update your moment metadata** to use the new CID:
+   ```bash
+   POST /api/agent/v1/moments/build-edit
+   {
+     "userUPAddress": "0x...",
+     "momentAddress": "0x...",
+     "metadataJson": {
+       "LSP4Metadata": {
+         "images": [[{
+           "url": "ipfs://NEW_CID_FROM_STEP_2",
+           ...
+         }]],
+         ...
+       }
+     }
+   }
+   ```
+
+4. Execute the edit transaction
+
+**Prevention:**
+- **Always** use `POST https://www.forevermoments.life/api/pinata` for media uploads
+- **Never** pin media elsewhere and expect it to work
+- **Verify** each CID was obtained from the Forever Moments Pinata proxy
+- **Keep an audit log** of all media uploads: original filename → CID → metadata JSON → tx hash
+
+### Verification hash mismatches
+
+**Symptoms:**
+- Moment displays but shows a verification warning
+- Hash in metadata doesn't match actual file content
+
+**Root cause:**
+- Computed `keccak256(bytes)` on the wrong data (e.g., base64-encoded instead of raw bytes)
+- Used a different hash function (SHA256, SHA3, etc.)
+- File was modified after hash computation but before upload
+
+**Solution:**
+- Compute `keccak256` on the **raw file bytes** (not base64, not hex-encoded)
+- Hash the file **before** uploading to ensure it matches
+- Use the exact same file for both hashing and uploading
+- If using Node.js, use `crypto.createHash('sha3-256')` on raw Buffer
+
+**When to include verification hashes:**
+- ✅ Include them when you have the original files and can compute hashes reliably
+- ⚠️ Omit them if you're uncertain about the hash computation method
+- ⚠️ Omit them if you're transcoding/resizing media (hash won't match after processing)
+
+### Transaction succeeded but moment not appearing
+
+**Possible causes:**
+1. **Indexer lag**: Wait 1-2 minutes and refresh
+2. **Wrong collection address**: Verify the `collectionUP` parameter
+3. **Metadata not pinned**: Check that metadata JSON CID is accessible
+4. **Invalid metadata format**: Ensure LSP4Metadata structure is correct
+
+**Debug steps:**
+1. Check transaction receipt: `status == 1` means success
+2. Verify moment address in transaction logs
+3. Query moment metadata directly on-chain
+4. Check public API: `GET /api/public/v1/moments/{momentAddress}`
+
+### Relay execution failures
+
+**Symptoms:**
+- Relay returns `400` or `execution failed`
+- Gas estimation fails
+- `LSP25: insufficient nonce` error
+
+**Common causes:**
+- Controller key missing `EXECUTE_RELAY_CALL` permission
+- Controller key missing action-specific permissions (`CALL`, `SUPER_CALL`)
+- UP has no relay quota remaining
+- Nonce mismatch (relay request too old or already used)
+- Signed with wrong controller key
+- Used `signMessage` instead of raw digest signing
+
+**Debug steps:**
+1. **Check controller permissions** on the UP (via Key Manager)
+2. **Verify relay quota**: Check if UP has relayer gas budget
+3. **Check nonce freshness**: Use nonce from `/relay/prepare`, don't cache it
+4. **Verify signing**: Sign `hashToSign` as a raw 32-byte digest
+5. **Retry once**: Network transients can cause false failures
+
+### Asset pinning fails (POST /api/pinata errors)
+
+**Symptoms:**
+- Upload returns `400`, `413`, or `500`
+- "File too large" or "Invalid file type" errors
+
+**Common causes:**
+- File exceeds size limits
+- Invalid multipart/form-data format
+- Wrong field name (must be `file`)
+- Network timeout on large uploads
+
+**Solutions:**
+- **File size**: Keep videos under 500MB (check current limits in Swagger docs)
+- **Field name**: Use `file` as the form field name
+- **Content type**: Use `multipart/form-data`, not `application/json`
+- **Network**: Retry with exponential backoff for transient failures
+- **Compression**: Consider re-encoding large videos at lower bitrates
+
+**Example (correct format):**
+```bash
+curl -X POST "https://www.forevermoments.life/api/pinata" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@./video.mp4"
+```
+
+### When to contact support
+
+Contact Forever Moments support if:
+- POST /api/pinata succeeds but media still returns 403
+- You need to recover/re-pin historical CIDs
+- Relay quota is exhausted and needs replenishment
+- Transaction succeeded on-chain but app doesn't reflect changes after 5+ minutes
+- Repeated relay failures with correct permissions
 

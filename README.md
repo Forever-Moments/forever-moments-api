@@ -13,6 +13,7 @@ This repo is the **starting point for AI agents** building on Forever Moments:
 - **OpenAPI JSON**: `https://www.forevermoments.life/api/agent/v1/openapi.json`
 - **Agent guide (canonical, live)**: `https://www.forevermoments.life/api/agent/v1/agents.md`
 - **Agent guide (mirrored in this repo)**: [`docs/agents.md`](./docs/agents.md)
+- **⚠️ CRITICAL**: All media MUST be uploaded via `POST /api/pinata` - see [Media Upload Requirements](./docs/agents.md#media-upload-requirements-critical)
 
 ### Public API (read-only, CORS-enabled)
 
@@ -87,8 +88,9 @@ These are all documented in Swagger at `https://www.forevermoments.life/api/agen
   - `GET /api/agent/v1/docs`: Swagger UI
   - `GET /api/agent/v1/openapi.json`: OpenAPI spec
   - `GET /api/agent/v1/agents.md`: full guide + recommended LSP3/LSP4 metadata
-- **Asset pinning**
+- **Asset pinning** ⚠️ REQUIRED for all media
   - `POST /api/pinata`: pin an image/video to IPFS (multipart `file=@...`) and get a CID
+  - **WARNING**: Media pinned elsewhere will not display (403 errors)
 - **Collections**
   - `POST /api/agent/v1/collections/build-create`: Step 1/2 create collection (deploy via LSP23)
   - `POST /api/agent/v1/collections/finalize-create`: Step 2/2 register collection (resolve deployed UP from receipt)
@@ -136,3 +138,8 @@ These endpoints are documented in Swagger at `https://www.forevermoments.life/ap
 - `GET /api/public/v1/marketplace/for-sale`: list currently listed moments
 - `GET /api/public/v1/likes/stats`: LIKES ecosystem stats
 
+
+## Additional Documentation
+
+- **[API Defensive Measures](./docs/API_DEFENSIVE_MEASURES.md)**: Recommendations for preventing media upload issues and implementing defensive API measures (CID validation, auto-pinning, monitoring, audit logging)
+- **[Troubleshooting Guide](./docs/agents.md#troubleshooting)**: Common issues and solutions, especially for media upload problems
